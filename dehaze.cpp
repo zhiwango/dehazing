@@ -16,7 +16,6 @@ int main()
 	Mat img, y_channel, y_channel_median, t_map, dst;
 	img = imread("./img/train.bmp");
 
-
 	if (img.empty()){
 		printf("Can not load the picture.\n");
 		return -1;
@@ -26,7 +25,7 @@ int main()
 
 	y_channel = get_Ychannel(img);
 	medianBlur(y_channel, y_channel_median, 5);
-	airlight = Calculate_a_in_dark_channel(img, block, cirle_wrong_point, morph_size, save_buf, save_bufwithmorph, save_compare_img);
+	airlight = calculate_airlight_in_dark_channel(img, block, cirle_wrong_point, morph_size, save_buf, save_bufwithmorph, save_compare_img);
 	t_map = transmission(img, y_channel_median, airlight);
 	dst = getDehazed(img, t_map, airlight);
 	namedWindow("Dehazing");

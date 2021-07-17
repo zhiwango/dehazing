@@ -10,11 +10,11 @@ bool save_bufwithmorph = false;
 bool save_compare_img = false;
 bool cirle_wrong_point = true;
 
-int main()
+int main(int argc, char **argv)
 {
 	int airlight;
 	Mat img, y_channel, y_channel_median, t_map, dst;
-	img = imread("./img/train.bmp");
+	img = imread(argv[1]);
 
 	if (img.empty()){
 		printf("Can not load the picture.\n");

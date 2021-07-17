@@ -2,12 +2,19 @@
 
 #include "dehaze.h"
 
-int main()
-{
-	int a;
-	Mat img, y_channel, y_channel_median, t_map, dst;
-	img = imread("train.bmp");
+int block = 5;
+int morph_size = 30;
 
+bool save_buf = false;
+bool save_bufwithmorph = false;
+bool save_compare_img = false;
+bool cirle_wrong_point = true;
+
+int main(int argc, char **argv)
+{
+	int airlight;
+	Mat img, y_channel, y_channel_median, t_map, dst;
+	img = imread(argv[1]);
 
 	if (img.empty()){
 		printf("Can not load the picture.\n");
@@ -18,9 +25,9 @@ int main()
 
 	y_channel = get_Ychannel(img);
 	medianBlur(y_channel, y_channel_median, 5);
-	a = Calculate_a_in_dark_channel(img);
-	t_map = transmission(img, y_channel_median, a);
-	dst = getDehazed(img, t_map, a);
+	airlight = calculate_airlight_in_dark_channel(img, block, cirle_wrong_point, morph_size, save_buf, save_bufwithmorph, save_compare_img);
+	t_map = transmission(img, y_channel_median, airlight);
+	dst = getDehazed(img, t_map, airlight);
 	namedWindow("Dehazing");
 	imshow("Dehazing", dst);
 	//imwrite("dehaze.bmp", dst);

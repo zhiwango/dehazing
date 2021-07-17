@@ -17,14 +17,15 @@ Mat get_Ychannel(Mat &src)
 	return image;
 }
 
-// Calculate A in dark channel and show a threshold image with 10% brightest pixel.
-int Calculate_a_in_dark_channel(Mat &src, int block = 7, bool cirle_wrong_point = true, int MORPH_SIZE = 30, bool save_buf = true, bool save_bufwithmorph = true, bool save_compareimg = true)
+// Calculate airlight in dark channel and show a threshold image with 10% brightest pixel.
+int calculate_airlight_in_dark_channel(Mat &src, int block, bool cirle_wrong_point, int MORPH_SIZE, bool save_buf, bool save_bufwithmorph, bool save_compareimg)
 {
 	double minVal = 0;
 	double maxVal = 0;
-
+	
 	Mat rgbmin(src.rows, src.cols, CV_8UC1);
 	Mat rgbmin2(src.rows, src.cols, CV_8UC1);
+	// Process the first minimum filter on the input image by method 1.
 	for (int m = 0; m<src.rows; m++)
 	{
 		for (int n = 0; n<src.cols; n++)
@@ -34,30 +35,32 @@ int Calculate_a_in_dark_channel(Mat &src, int block = 7, bool cirle_wrong_point 
 		}
 	}
 	imshow("rgbmin", rgbmin);
-	//Here we had done the first minimum filter on the input image.
-	vector<Mat>planes;
-	split(src, planes);
-	rgbmin2 = planes.at(0);
-	//imshow("rgbmin", rgbmin2);
 
-	// Counter how much 0 pixel and compare the pixel is not different.
-	int counter = 0;
-	for (int m = 0; m < src.rows; m++)
-	{
-		for (int n = 0; n < src.cols; n++)
-		{
-			//cout << int(rgbmin.at<uchar>(m, n)) << endl;
-			if (int(rgbmin.at<uchar>(m, n)) == int(rgbmin2.at<uchar>(m,n)))
-			{
-				continue;
-			}
-			else
-			{
-				cout << "The pixel value is different." << endl;
-			}
-		}
-	}
-	//cout << "pixel numbers : " << counter << endl;
+	// Process the first minimum filter on the input image by method 2.
+	// vector<Mat>planes;
+	// split(src, planes);
+	// rgbmin2 = planes.at(0);
+	// imshow("rgbmin2", rgbmin2);
+
+	// Count how much the pixel is not different.
+	// int counter = 0;
+	// for (int m = 0; m < src.rows; m++)
+	// {
+	// 	for (int n = 0; n < src.cols; n++)
+	// 	{
+	// 		//cout << int(rgbmin.at<uchar>(m, n)) << endl;
+	// 		if (int(rgbmin.at<uchar>(m, n)) == int(rgbmin2.at<uchar>(m,n)))
+	// 		{
+	// 			continue;
+	// 		}
+	// 		else
+	// 		{
+	// 			cout << "The pixel value is different." << endl;
+	// 			counter++;
+	// 		}
+	// 	}
+	// }
+	// cout << "pixel numbers : " << counter << endl;
 
 	if (rgbmin.empty()){
 		printf("Can not load the RGB_min_image.\n");
@@ -84,7 +87,8 @@ int Calculate_a_in_dark_channel(Mat &src, int block = 7, bool cirle_wrong_point 
 		}
 	}
 	transpose(darkchannel, darkchannel); // This is dark channel, but always with some edges.
-	// cut off the edge
+	imshow("darkchannel", darkchannel);
+	// Cut off the edge
 	int bottom = darkchannel.rows%block;
 	int right = darkchannel.cols%block;
 	darkchannel = darkchannel(Range(0, darkchannel.rows - bottom), Range(0, darkchannel.cols - right));
@@ -122,7 +126,7 @@ int Calculate_a_in_dark_channel(Mat &src, int block = 7, bool cirle_wrong_point 
 
 	namedWindow("Threshold Image without morphology");
 	imshow("Threshold Image without morphology", buf);
-	//save image withour morphology
+	// Save image withour morphology
 	if (save_buf == true)
 	{
 		imwrite("buf_nomorphology.bmp", buf);
@@ -131,11 +135,11 @@ int Calculate_a_in_dark_channel(Mat &src, int block = 7, bool cirle_wrong_point 
 	Mat element = getStructuringElement(MORPH_RECT, Size(MORPH_SIZE, MORPH_SIZE));
 	morphologyEx(buf, buf, MORPH_OPEN, element);
 
-	//return to Y channel to find the pixel.
+	// Return to Y channel to find the pixel.
 	Mat y_channel = get_Ychannel(src);
 	Mat tmp = src.clone();
 
-	// By set True to circl the wrong point in y channel image.
+	// Circle the wrong point in y channel image, if there is.
 	if (cirle_wrong_point == true)
 	{
 		double minDC_wrong_point, maxDC_wrong_point;
@@ -163,13 +167,13 @@ int Calculate_a_in_dark_channel(Mat &src, int block = 7, bool cirle_wrong_point 
 	}
 	namedWindow("Threshold Image");
 	imshow("Threshold Image", buf);
-	//save image with morphology
+	// save image with morphology
 	if (save_bufwithmorph == true)
 	{
 		imwrite("buf.bmp", buf);
 	}
 	circle(tmp, maxLoc, 5, CV_RGB(0, 255, 0), 2);
-	//save image that include two circled pixel
+	// save image that include two circled pixel
 	if (save_compareimg == true)
 	{
 		imwrite("compare_point.bmp", tmp);
@@ -185,8 +189,8 @@ int Calculate_a_in_dark_channel(Mat &src, int block = 7, bool cirle_wrong_point 
 	return MAX_I;
 }
 
-//Calculate the average of two point (brightest pixel and darkest pixel) in source image
-//To determin the haze in source image is more or less
+// Calculate the average of two point (brightest pixel and darkest pixel) in source image
+// To determine the haze in source image is more or less
 double twopoint_avg_pixel(Mat &src)
 {
 	double minVal, maxVal;
@@ -233,7 +237,7 @@ void GammaCorrection(Mat& src, Mat& dst, float fGamma)
 	}
 }
 
-// Calculate the transmission map
+// Calculate the Transmission map
 Mat transmission(Mat src, Mat Mmed, int a)
 {
 	Mat transmission_map = Mat::zeros(src.rows, src.cols, CV_8UC3);
@@ -241,7 +245,7 @@ Mat transmission(Mat src, Mat Mmed, int a)
 	m = twopoint_avg_pixel(src) / 255; // Use m to determin the haze is more or less
 	p = 1.3; // Set this value by experiment
 	q = 1 + (m - 0.5); // Value q is decided by value m, if m is big and q will be bigger to remove more haze. <- Auto-tunning parameter
-	k = min(m*p*q, 0.95);// 
+	k = min(m*p*q, 0.95);
 	transmission_map = 255 * (1 - k*Mmed / a);
 	GammaCorrection(transmission_map, transmission_map, 1.3 - m);
 	printf("m=%f\n", m);
@@ -250,7 +254,7 @@ Mat transmission(Mat src, Mat Mmed, int a)
 	return transmission_map;
 }
 
-// Restoration
+// Image Restoration
 Mat getDehazed(Mat &src, Mat &t, int a)
 {
 	double tmin = 0.1;

@@ -1,5 +1,3 @@
-//https://doi.org/10.5057/jjske.TJSKE-D-19-00004
-
 #include "dehaze.h"
 
 int block = 5;

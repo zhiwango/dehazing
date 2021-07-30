@@ -1,7 +1,7 @@
 #include "dehaze.h"
 
 int block = 5;
-int morph_size = 30;
+int morph_size = 15;
 
 bool save_buf = false;
 bool save_bufwithmorph = false;
@@ -21,11 +21,11 @@ int main(int argc, char **argv)
 	namedWindow("Input");
 	imshow("Input", img);
 
-	y_channel = get_Ychannel(img);
+	y_channel = calcYchannel(img);
 	medianBlur(y_channel, y_channel_median, 5);
-	airlight = calculate_airlight_in_dark_channel(img, block, cirle_wrong_point, morph_size, save_buf, save_bufwithmorph, save_compare_img);
-	t_map = transmission(img, y_channel_median, airlight);
-	dst = getDehazed(img, t_map, airlight);
+	airlight = calcAirlight(img, block, cirle_wrong_point, morph_size, save_buf, save_bufwithmorph, save_compare_img);
+	t_map = calcTransmission(img, y_channel_median, airlight);
+	dst = dehazing(img, t_map, airlight);
 	namedWindow("Dehazing");
 	imshow("Dehazing", dst);
 	//imwrite("dehaze.bmp", dst);

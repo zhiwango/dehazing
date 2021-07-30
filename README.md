@@ -4,7 +4,7 @@ The algorithm can set the parameters below:
 ```
 block: the kernel size of twice minimum filter, before get the dark channel.
 morph_size: the kernel size of Morphological Transformations
-cirle_wrong_point; circle the wrong pixel of airlight  
+cirle_wrong_point: circle the wrong pixel of airlight  
 ```
 # Dependency
 This algorithm is basesd on C++ and OpenCV.

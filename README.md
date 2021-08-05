@@ -9,7 +9,7 @@ cirle_wrong_point: circle the wrong pixel of airlight
 # Dependency
 This algorithm is basesd on C++ and OpenCV.
 Install OpenCV from source code, more informatino can be found 
-[here](./document/install_opencv.md).
+[here](./others/install_opencv.md).
 # Sample dataset
 Download some sample datasets to test the algorithm.
 

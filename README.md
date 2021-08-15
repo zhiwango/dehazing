@@ -1,11 +1,15 @@
 # Dehazing
-This repository is used to publish the code of my image dehazing paper.  
-The algorithm can set the parameters below:
+This repository is used to publish the code, that usd in my image dehazing paper.  
+The C++ algorithm can set the parameters below:
 ```
-block: the kernel size of twice minimum filter, before get the dark channel.
-morph_size: the kernel size of Morphological Transformations
-cirle_wrong_point: circle the wrong pixel of airlight  
+block_size: the kernel size of twice minimum filter, before get the dark channel.
+morphology_transoform_kernel_size: the kernel size of Morphological Transformations
+is_cirle_wrong_point: circle the wrong pixel of airlight  
 ```
+Also, there is a python source code.
+To calculate the dark channel, I used a erode calculation, same as the twice minimum filter.  
+  
+![erode](./others/erode_formula.png)
 # Dependency
 This algorithm is basesd on C++ and OpenCV.
 Install OpenCV from source code, more informatino can be found 
@@ -15,9 +19,14 @@ Download some sample datasets to test the algorithm.
 
 [Benchmark images](http://kaiminghe.com/cvpr09/images.rar)
 # Run the program
+## C++
 ```
 g++ dehaze.cpp dehaze.h `pkg-config --cflags --libs opencv4` -o dehaze
 ./dehaze input.bmp
+```
+## Python
+```
+python3 dehaze_python.py
 ```
 # Paper
 ```

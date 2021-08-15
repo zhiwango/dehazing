@@ -1,12 +1,12 @@
 #include "dehaze.h"
 
-int block = 5;
-int morph_size = 15;
+int block_size = 5;
+int morphology_transorm_kernel_size = 15;
 
 bool save_buf = false;
 bool save_bufwithmorph = false;
 bool save_compare_img = false;
-bool cirle_wrong_point = true;
+bool is_circle_wrong_point = true;
 
 int main(int argc, char **argv)
 {
@@ -23,7 +23,7 @@ int main(int argc, char **argv)
 
 	y_channel = calcYchannel(img);
 	medianBlur(y_channel, y_channel_median, 5);
-	airlight = calcAirlight(img, block, cirle_wrong_point, morph_size, save_buf, save_bufwithmorph, save_compare_img);
+	airlight = calcAirlight(img, block_size, is_circle_wrong_point, morphology_transorm_kernel_size, save_buf, save_bufwithmorph, save_compare_img);
 	t_map = calcTransmission(img, y_channel_median, airlight);
 	dst = dehazing(img, t_map, airlight);
 	namedWindow("Dehazing");

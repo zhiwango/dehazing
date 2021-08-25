@@ -1,6 +1,7 @@
 # Dehazing
 This repository is used to publish the code, that usd in my image dehazing paper.  
-![input](./others/input.jpg)![output](./others/output.jpg)  
+<img height="400" src="./others/input.jpg" width="300"/>
+<img height="400" src="./others/output.jpg" width="300"/>  
 The C++ algorithm can set the parameters below:
 ```
 block_size: the kernel size of twice minimum filter, before get the dark channel.

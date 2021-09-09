@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import cv2
+import argparse
 
 
 def calc_y_channel(src):
@@ -99,12 +100,12 @@ def dehaze(src, transmission, air_light):
     return restored_image
 
 
-def main():
+def main(img):
     block_size = 5
     morphology_transform_kernel_size = 15
     median_filter_kernel_size = 5
     show_circled_image = True
-    image = cv2.imread("./img/canyon2.bmp")
+    image = cv2.imread(img)
     y_channel = calc_y_channel(image)
     dark_channel = calc_dark_channel(image, block_size)
     threshold_img = calc_morphology_threshold_image(dark_channel, morphology_transform_kernel_size)
@@ -120,4 +121,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Haze remove for a single image.')
+    parser.add_argument('input', help='input image')
+    args = parser.parse_args()
+    main(args.input)

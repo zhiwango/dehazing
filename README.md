@@ -28,7 +28,7 @@ g++ dehaze.cpp dehaze.h `pkg-config --cflags --libs opencv4` -o dehaze
 ```
 ## Python
 ```
-python3 dehaze_python.py
+python3 dehaze.py input_file file_type
 ```
 # Paper
 ```

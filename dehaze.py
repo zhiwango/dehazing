@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import cv2
+import argparse
 
 
 def calc_y_channel(src):
@@ -99,46 +100,62 @@ def dehaze(src, transmission, air_light):
     return restored_image
 
 
-def main():
+def main(input_file, file_type):
     block_size = 5
     morphology_transform_kernel_size = 15
     median_filter_kernel_size = 5
-    show_circled_image = False
-
-    video_path = "/home/zhi/Downloads/input.MOV"
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_all = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    video_writer = cv2.VideoWriter("output.mp4", cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, size)
-
-    print("[INFO] 视频FPS: {}".format(fps))
-    print("[INFO] 视频总帧数: {}".format(frame_all))
-    print("[INFO] 视频时长: {}s".format(frame_all / fps))
-    frame_count = 1
-    while frame_count < frame_all:
-        ret, image = cap.read()
-        print("画像を読み込みました！")
+    show_circled_image = True
+    if file_type == 'image':
+        image = cv2.imread(input_file)
         y_channel = calc_y_channel(image)
         dark_channel = calc_dark_channel(image, block_size)
         threshold_img = calc_morphology_threshold_image(dark_channel, morphology_transform_kernel_size)
         air_light = calc_air_light(image, y_channel, dark_channel, threshold_img, show_circled_image)
-        print("Has been calculated air light")
         min_med_img = cv2.medianBlur(y_channel, median_filter_kernel_size)
         transmission_map = calc_transmission(min_med_img, air_light, 0.95)
         dehaze_image = dehaze(image, transmission_map, air_light)
-        print("霧除去できました！")
-        # cv2.imshow("Output", image)
-        video_writer.write(dehaze_image)
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-        frame_count += 1
-        print("処理数: {}".format(frame_count))
-        print("[INFO] 剩余数: {}".format(frame_all - frame_count))
-    cap.release()
+        print("atmospheric light: ", air_light)
+        cv2.imshow("src", image)
+        cv2.imshow("dst", dehaze_image)
+        cv2.waitKey(0)
+    elif file_type == 'video':
+        cap = cv2.VideoCapture(input_file)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_all = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        video_writer = cv2.VideoWriter("output.mp4", cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, size)
+
+        print("[INFO] 视频FPS: {}".format(fps))
+        print("[INFO] 视频总帧数: {}".format(frame_all))
+        print("[INFO] 视频时长: {}s".format(frame_all / fps))
+        frame_count = 1
+        while frame_count < frame_all:
+            ret, image = cap.read()
+            print("画像を読み込みました！")
+            y_channel = calc_y_channel(image)
+            dark_channel = calc_dark_channel(image, block_size)
+            threshold_img = calc_morphology_threshold_image(dark_channel, morphology_transform_kernel_size)
+            air_light = calc_air_light(image, y_channel, dark_channel, threshold_img, show_circled_image)
+            print("Has been calculated air light")
+            min_med_img = cv2.medianBlur(y_channel, median_filter_kernel_size)
+            transmission_map = calc_transmission(min_med_img, air_light, 0.95)
+            dehaze_image = dehaze(image, transmission_map, air_light)
+            print("霧除去できました！")
+            # cv2.imshow("Output", image)
+            video_writer.write(dehaze_image)
+            if cv2.waitKey(25) & 0xFF == ord('q'):
+                cv2.destroyAllWindows()
+                break
+            frame_count += 1
+            print("処理数: {}".format(frame_count))
+            print("[INFO] 剩余数: {}".format(frame_all - frame_count))
+        cap.release()
     cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Haze remove for a single image.')
+    parser.add_argument('input', help='input file')
+    parser.add_argument('filetype', help='image or video')
+    args = parser.parse_args()
+    main(args.input, args.filetype)

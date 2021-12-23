@@ -23,7 +23,7 @@ Download some sample datasets to test the algorithm.
 # Run the program
 ## C++
 ```
-g++ dehaze.cpp dehaze.h `pkg-config --cflags --libs opencv4` -o dehaze
+g++ dehaze.cpp dehaze.h `pkg-config opencv --cflags --libs` -o dehaze
 ./dehaze input.bmp
 ```
 ## Python

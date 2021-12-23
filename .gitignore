@@ -1,5 +1,4 @@
 .vscode/*
 .idea/*
 dehaze
-input.MOV
-output.mp4
+dehaze_cuda

@@ -13,6 +13,7 @@ int main(int argc, char **argv)
 	int airlight;
 	Mat img, y_channel, y_channel_median, t_map, dst;
 	img = imread(argv[1]);
+	resize(img, img, Size(800,600));
 
 	if (img.empty()){
 		printf("Can not load the picture.\n");

@@ -107,6 +107,7 @@ def main(input_file, file_type):
     show_circled_image = True
     if file_type == 'image':
         image = cv2.imread(input_file)
+        # image = cv2.resize(image, (800, 600), image)
         y_channel = calc_y_channel(image)
         dark_channel = calc_dark_channel(image, block_size)
         threshold_img = calc_morphology_threshold_image(dark_channel, morphology_transform_kernel_size)

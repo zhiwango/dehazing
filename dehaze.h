@@ -1,277 +1,208 @@
 #include <opencv2/opencv.hpp>
-#include <time.h>
-#include <fstream>
+#include <iostream>
+#include <vector>
+#include <algorithm>
 
 using namespace cv;
 using namespace std;
 
-// Calculate Y channel image in YUV colorspace
-Mat calcYchannel(Mat &src)
+//------------------------------------------------------------
+// 计算 YUV 颜色空间的 Y 通道
+//------------------------------------------------------------
+Mat calcYchannel(const Mat &src)
 {
-	Mat image = Mat::zeros(src.rows, src.cols, CV_8UC1);
-	Mat tmp = src.clone();
-	cvtColor(tmp, tmp, COLOR_BGR2YUV);
+	Mat yuv, ychannel;
+	CV_Assert(!src.empty() && src.type() == CV_8UC3);
+	cvtColor(src, yuv, COLOR_BGR2YUV);
 	vector<Mat>planes;
-	split(tmp, planes);
-	image = planes.at(0);
-	return image;
+	split(yuv, planes);
+	return planes[0];
 }
 
-// Calculate airlight in dark channel and show a threshold image with 10% brightest pixel.
-int calcAirlight(Mat &src, int block, bool cirle_wrong_point, int MORPH_SIZE, bool save_buf, bool save_bufwithmorph, bool save_compareimg)
+//------------------------------------------------------------
+// 计算暗通道并估计大气光
+//------------------------------------------------------------
+int calcAirlight(const Mat &src, int blockSize, int morphSize, bool cirleWrongPoint, bool saveBuf, bool saveBufWithMorph, bool saveCompareImg)
 {
-	double minVal = 0;
-	double maxVal = 0;
-	
-	Mat rgbmin(src.rows, src.cols, CV_8UC1);
-	// Mat rgbmin2(src.rows, src.cols, CV_8UC1);
-	// Process the first minimum filter on the input image by method 1.
-	for (int m = 0; m<src.rows; m++)
+	CV_Assert(!src.empty() && src.type() == CV_8UC3);
+
+	// Step 1. 计算每个像素的 RGB 最小值
+	Mat rgbMin(src.rows, src.cols, CV_8UC1);
+
+	for (int i = 0; i<src.rows; i++)
 	{
-		for (int n = 0; n<src.cols; n++)
+		const Vec3b* row = src.ptr<Vec3b>(i);
+		uchar* out = rgbMin.ptr<uchar>(i);
+		for (int j = 0; j<src.cols; j++)
 		{
-			Vec3b intensity = src.at<Vec3b>(m, n);
-			rgbmin.at<uchar>(m, n) = min(min(intensity.val[0], intensity.val[1]), intensity.val[2]);
+			out[j] = static_cast<uchar>(std::min({row[j][0], row[j][1], row[j][2]}));
 		}
 	}
-	imshow("rgbmin", rgbmin);
+	imshow("rgbmin", rgbMin);
 
-	// Process the first minimum filter on the input image by method 2.
-	// vector<Mat>planes;
-	// split(src, planes);
-	// rgbmin2 = planes.at(0);
-	// imshow("rgbmin2", rgbmin2);
+	// Step 2. 基于 blockSize 进行最小滤波，得到暗通道
+	Mat darkChannel(src.size(), CV_8UC1, Scalar(0));
 
-	// Count how much the pixel is not different.
-	// int counter = 0;
-	// for (int m = 0; m < src.rows; m++)
-	// {
-	// 	for (int n = 0; n < src.cols; n++)
-	// 	{
-	// 		//cout << int(rgbmin.at<uchar>(m, n)) << endl;
-	// 		if (int(rgbmin.at<uchar>(m, n)) == int(rgbmin2.at<uchar>(m,n)))
-	// 		{
-	// 			continue;
-	// 		}
-	// 		else
-	// 		{
-	// 			cout << "The pixel value is different." << endl;
-	// 			counter++;
-	// 		}
-	// 	}
-	// }
-	// cout << "pixel numbers : " << counter << endl;
-
-	if (rgbmin.empty()){
-		printf("Can not load the RGB min image.\n");
-		return -1;
-	}
-	Mat darkchannel(Size(src.rows, src.cols), CV_8UC1); // Create a darkchannel image used for next time of minimum filter
-	Rect ROI_rect; // Define the ROI size with block, do the twice minimum filter in this block.
-	for (int i = 0; i < src.rows / block; i++)
+	for (int i = 0; i < src.rows; i += blockSize)
 	{
-		for (int j = 0; j < src.cols / block; j++)
+		for (int j = 0; j < src.cols; j+= blockSize)
 		{
-			ROI_rect.x = i*block;
-			ROI_rect.y = j*block;
-			ROI_rect.width = block;
-			ROI_rect.height = block;
-			Mat roi = rgbmin(Rect(ROI_rect.y, ROI_rect.x, ROI_rect.width, ROI_rect.height));
-			//Mat roi = src(Range(ROI_rect.x, ROI_rect.x + ROI_rect.width),Range(ROI_rect.y, ROI_rect.y + ROI_rect.height));
-			//printf("(%d,%d)", i, j);
-			Mat dst_roi = darkchannel(ROI_rect);
-			minMaxLoc(roi, &minVal, &maxVal);
-			//printf("%.2f\n", minVal);
-			roi.setTo(minVal);
-			roi.copyTo(dst_roi);
+			int h = std::min(blockSize, src.rows - i);
+			int w = std::min(blockSize, src.cols - j);
+
+			Rect roi(j, i, w, h);
+			double minVal;
+			minMaxLoc(rgbMin(roi), &minVal, nullptr);
+			darkChannel(roi).setTo(static_cast<uchar>(minVal));
 		}
 	}
-	transpose(darkchannel, darkchannel); // This is dark channel, but always with some edges.
-	imshow("darkchannel", darkchannel);
-	// Cut off the edge
-	int bottom = darkchannel.rows%block;
-	int right = darkchannel.cols%block;
-	darkchannel = darkchannel(Range(0, darkchannel.rows - bottom), Range(0, darkchannel.cols - right));
-	// Here we had done the twice minimum filter on the input image.
-	int height = darkchannel.rows;
-	int width = darkchannel.cols;
-	int some_pixel = height * width * 0.90; // 90% pixels in dark channel
+	imshow("darkchannel", darkChannel);
 
-	vector <int> vect_sortPixel;
+	// Step 3. 阈值分割，选取暗通道中最亮的 10%
+	vector<uchar> pixels;
+	pixels.assign(darkChannel.datastart, darkChannel.dataend);
+	sort(pixels.begin(), pixels.end());
 
-	for (int i = 0; i < darkchannel.rows*darkchannel.cols; i++)
-	{
-		vect_sortPixel.push_back(darkchannel.data[i]);
-	}
-	std::sort(vect_sortPixel.begin(), vect_sortPixel.end()); // Get all of the pixel and sort them.
+	int th = pixels[static_cast<size_t>(pixels.size() * 0.9)];
+	Mat mask = darkChannel >= th;
 
-	int th = vect_sortPixel[some_pixel];
-	// Make a threshold image.
-	Mat buf = darkchannel.clone();
-	for (int i = 0; i < darkchannel.rows; i++)
-	{
-		for (int j = 0; j < darkchannel.cols; j++)
-		{
-			if (darkchannel.at<uchar>(i, j) < th)  // If these pixels are blong to 90% pixels, set the color to black
-			{
-				buf.at<uchar>(i, j) = 0;
-			}
-			else
-			{
-				buf.at<uchar>(i, j) = 255; // If these pixels are blong to 10% pixels, set the color to white
-			}
-		}
+	imshow("Threshold Image without morphology", mask);
+	if (saveBuf) imwrite("buf_nomorphology.bmp", mask);
 
-	}
 
-	namedWindow("Threshold Image without morphology");
-	imshow("Threshold Image without morphology", buf);
-	// Save image without morphology transformations
-	if (save_buf == true)
-	{
-		imwrite("buf_nomorphology.bmp", buf);
-	}
+	// Step 4. 形态学操作去除噪声
 	// There is still some pixel(not the airlight area) in threshold image.
-	Mat element = getStructuringElement(MORPH_RECT, Size(MORPH_SIZE, MORPH_SIZE));
-	morphologyEx(buf, buf, MORPH_OPEN, element);
+	Mat element = getStructuringElement(MORPH_RECT, Size(morphSize, morphSize));
+	morphologyEx(mask, mask, MORPH_OPEN, element);
 
+
+	// Step 5. 找到亮度最高的点作为大气光
 	// Return to Y channel to find the pixel.
-	Mat y_channel = calcYchannel(src);
-	Mat tmp = src.clone();
-
-	// Circle the wrong point in y channel image, if there is.
-	if (cirle_wrong_point == true)
-	{
-		double minDC_wrong_point, maxDC_wrong_point;
-		Point minLoc_wrong_point, maxLoc_wrong_point;
-		minMaxLoc(y_channel, &minDC_wrong_point, &maxDC_wrong_point, &minLoc_wrong_point, &maxLoc_wrong_point);
-		circle(tmp, maxLoc_wrong_point, 5, CV_RGB(255, 0, 0), 2);
-	}
-
-	int MAX_I = 0; // Define the value of airlight
+	Mat yChannel = calcYchannel(src);
+	int maxI = 0; // Define the value of airlight
 	Point maxLoc(0, 0); // Define the location of airlight
-	for (int i = 0; i < darkchannel.rows; i++)
+
+	for (int i = 0; i < mask.rows; i++)
 	{
-		for (int j = 0; j < darkchannel.cols; j++)
+		const uchar* mRow = mask.ptr<uchar>(i);
+		const uchar* yRow = yChannel.ptr<uchar>(i);
+
+		for (int j = 0; j < mask.cols; j++)
 		{
-			if (buf.at<uchar>(i, j) == 255) // If the pixel is white in threshold image (means in airlight area)
+			if(mRow[j] == 255 && yRow[j] > maxI)
 			{
-				if (y_channel.at<uchar>(i, j) > MAX_I) // If this pixel in Y channel of YUV color is bigger than A, update A.
-				{
-					MAX_I = y_channel.at<uchar>(i, j);
-					maxLoc.x = j;
-					maxLoc.y = i;
-				}
+				maxI = yRow[j];
+				maxLoc = Point(i, j);
 			}
 		}
 	}
-	namedWindow("Threshold Image");
-	imshow("Threshold Image", buf);
-	// Save image with morphology
-	if (save_bufwithmorph == true)
+
+	// Step 6. 可视化
+	Mat display = src.clone();
+	if(cirleWrongPoint)
 	{
-		imwrite("buf.bmp", buf);
+		double minVal, maxVal;
+		Point minLoc, maxLocWrong;
+		minMaxLoc(yChannel, &minVal, &maxVal, &minLoc, &maxLocWrong);
+		circle(display, maxLocWrong, 5, Scalar(0, 0, 255), 2);
 	}
-	circle(tmp, maxLoc, 5, CV_RGB(0, 255, 0), 2);
-	// Save image that include two circled pixel
-	if (save_compareimg == true)
-	{
-		imwrite("compare_point.bmp", tmp);
-	}
-	namedWindow("The position of A");
-	imshow("The position of A", tmp);
+	circle(display, maxLoc, 5, Scalar(0, 255, 0), 2);
+
+	imshow("Threshold Image", mask);
+	imshow("The position of Airlight", display);
+
+	if(saveBufWithMorph) imwrite("buf.bmp", mask);
+	if(saveCompareImg) imwrite("compare_point.bmp", display);
+
 
 	// Print information
 	cout << "The coordinate of Airlight is " << maxLoc << endl;
-	cout << "The brightest pixel value is " << MAX_I << endl;
-	cout << "The mask size of dark channel is: " << block << " x " << block << "."<<endl;
-	cout << "The mask size of morphylogy is: " << MORPH_SIZE << " x " << MORPH_SIZE << "."<<endl;
-	return MAX_I;
+	cout << "The brightest pixel value is " << maxI << endl;
+	cout << "The mask size of dark channel is: " << blockSize << " x " << blockSize << "."<<endl;
+	cout << "The mask size of morphylogy is: " << morphSize << " x " << morphSize << "."<<endl;
+	return maxI;
 }
 
+//------------------------------------------------------------
+// 计算图像亮度均值
+//------------------------------------------------------------
 // Calculate the average of two point (brightest pixel and darkest pixel) in source image
 // To determine the haze in source image is more or less
-double ave_pixel(Mat &src)
+double avePixel(const Mat &src)
 {
 	double minVal, maxVal;
 	minMaxLoc(src, &minVal, &maxVal);
-	double ave = (minVal + maxVal) / 2;
-	return ave;
+	return (minVal + maxVal) / 2.0;
 }
 
-// Gamma Correction
-void GammaCorrection(Mat& src, Mat& dst, float fGamma)
+//------------------------------------------------------------
+// Gamma 矫正
+//------------------------------------------------------------
+void gammaCorrection(const Mat& src, Mat& dst, float gamma)
 {
-	CV_Assert(src.data);
-	// accept only char type matrices
-	CV_Assert(src.depth() != sizeof(uchar));
-	// build look up table
-	unsigned char lut[256];
+	CV_Assert(!src.empty());
+
+	// Build look up table
+	uchar lut[256];
 	for (int i = 0; i < 256; i++)
 	{
-		lut[i] = saturate_cast<uchar>(pow((float)(i / 255.0), fGamma) * 255.0f);
+		lut[i] = saturate_cast<uchar>(pow(i / 255.0, gamma) * 255.0f);
 	}
+
 	dst = src.clone();
-	const int channels = dst.channels();
-	switch (channels)
+	for (int i = 0; i < src.rows; i++)
 	{
-	case 1:
-	{
-		MatIterator_<uchar> it, end;
-		for (it = dst.begin<uchar>(), end = dst.end<uchar>(); it != end; it++)
-			//*it = pow((float)(((*it))/255.0), fGamma) * 255.0;
-			*it = lut[(*it)];
-		break;
-	}
-	case 2:
-	{
-		MatIterator_<Vec3b> it, end;
-		for (it = dst.begin<Vec3b>(), end = dst.end<Vec3b>(); it != end; it++)
+		uchar* row = dst.ptr<uchar>(i);
+		for (int j = 0; j < src.cols * src.channels(); j++)
 		{
-			(*it)[0] = lut[((*it)[0])];
-			(*it)[1] = lut[((*it)[1])];
-			(*it)[2] = lut[((*it)[2])];
+			row[j] = lut[row[j]];
 		}
-		break;
-	}
 	}
 }
 
-// Calculate the Transmission map
-Mat calcTransmission(Mat src, Mat Mmed, int a)
+//------------------------------------------------------------
+// 计算透射率图
+//------------------------------------------------------------
+Mat calcTransmission(const Mat& src, const Mat& Mmed, int a)
 {
-	Mat transmission_map = Mat::zeros(src.rows, src.cols, CV_8UC3);
-	double m, p, q, k;
-	m = ave_pixel(src) / 255; // Use m to determin the haze is more or less
-	p = 1.3; // Set this value by experiment
-	q = 1 + (m - 0.5); // Value q is decided by value m, if m is big and q will be bigger to remove more haze. <- Auto-tunning parameter
-	k = min(m*p*q, 0.95);
-	transmission_map = 255 * (1 - k*Mmed / a);
-	GammaCorrection(transmission_map, transmission_map, 1.3 - m);
+	CV_Assert(!src.empty() && !Mmed.empty());
+
+	double m = avePixel(src) / 255.0; // Use m to determin the haze is more or less
+	double p = 1.3; // Set this value by experiment
+	double q = 1 + (m - 0.5); // Value q is decided by value m, if m is big and q will be bigger to remove more haze. <- Auto-tunning parameter
+	double k = min(m * p * q, 0.95);
+
+	Mat transmission = 255 * (1 - k * Mmed / a);
+	gammaCorrection(transmission, transmission, 1.3f - static_cast<float>(m));
 	cout << "m = " << m << endl;
-	return transmission_map;
+	return transmission;
 }
 
-// Image Restoration
-Mat dehazing(Mat &src, Mat &t, int a)
+//------------------------------------------------------------
+// 图像复原
+//------------------------------------------------------------
+Mat dehazing(const Mat &src, const Mat &t, int a)
 {
-	double tmin = 0.1;
-	double tmax;
-	Scalar inttran;
-	Vec3b intsrc;
-	Mat dehaze_image = Mat::zeros(src.rows, src.cols, CV_8UC3);
-	for (int i = 0; i<src.rows; i++)
+	CV_Assert(!src.empty() && !t.empty());
+
+	Mat dehazed(src.size(), CV_8UC3);
+	const double tmin = 0.1;
+
+	for (int i = 0; i < src.rows; i++)
 	{
-		for (int j = 0; j<src.cols; j++)
+		const Vec3b* rowSrc = src.ptr<Vec3b>(i);
+		const uchar* rowT = t.ptr<uchar>(i);
+		Vec3b* rowDst  = dehazed.ptr<Vec3b>(i);
+
+		for (int j = 0; j < src.cols; j++)
 		{
-			inttran = t.at<uchar>(i, j);
-			intsrc = src.at<Vec3b>(i, j);
-			tmax = (inttran.val[0] / 255) < tmin ? tmin : (inttran.val[0] / 255);
-			for (int k = 0; k<3; k++)
+			double tVal = max(rowT[j] / 255.0, tmin);
+			for (int c = 0; c < 3; c++)
 			{
-				dehaze_image.at<Vec3b>(i, j)[k] = abs((intsrc.val[k] - a) / tmax + a) > 255 ? 255 : abs((intsrc.val[k] - a) / tmax + a);
+				double val = (rowSrc[j][c] - a) / tVal + a;
+				rowDst[j][c] = saturate_cast<uchar>(val);
 			}
 		}
 	}
-	return dehaze_image;
+	return dehazed;
 }

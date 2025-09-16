@@ -1,34 +1,46 @@
 #include "dehaze.h"
 
-int block_size = 5;
-int morphology_transorm_kernel_size = 15;
-
-bool save_buf = false;
-bool save_bufwithmorph = false;
-bool save_compare_img = false;
-bool is_circle_wrong_point = true;
-
 int main(int argc, char **argv)
 {
-	int airlight;
-	Mat img, y_channel, y_channel_median, t_map, dst;
-	img = imread(argv[1]);
+	// 参数检查
+    if (argc < 2) {
+        cerr << "Usage: " << argv[0] << " <image_path>" << endl;
+        return -1;
+    }
 
-	if (img.empty()){
-		printf("Can not load the picture.\n");
+	// 参数配置
+    constexpr int blockSize = 5;
+    constexpr int morphSize = 15;
+    constexpr bool saveBuf = false;
+    constexpr bool saveBufWithMorph = false;
+    constexpr bool saveCompareImg = false;
+    constexpr bool circleWrongPoint = true;
+
+	// 读取图像
+	Mat input = imread(argv[1]);
+	if (input.empty()){
+		cerr << "Error: cannot load image from path: " << argv[1] << endl;
 		return -1;
 	}
-	namedWindow("Input");
-	imshow("Input", img);
+	imshow("Input", input);
 
-	y_channel = calcYchannel(img);
-	medianBlur(y_channel, y_channel_median, 5);
-	airlight = calcAirlight(img, block_size, is_circle_wrong_point, morphology_transorm_kernel_size, save_buf, save_bufwithmorph, save_compare_img);
-	t_map = calcTransmission(img, y_channel_median, airlight);
-	dst = dehazing(img, t_map, airlight);
-	namedWindow("Dehazing");
-	imshow("Dehazing", dst);
-	//imwrite("dehaze.bmp", dst);
+	// Step1. 计算 Y 通道 & 中值滤波
+	Mat yChannel = calcYchannel(input);
+	Mat yChannelMedian;
+	medianBlur(yChannel, yChannelMedian, 5);
+
+	// Step2. 估计大气光
+	int airlight = calcAirlight(input, blockSize, morphSize, circleWrongPoint, saveBuf, saveBufWithMorph, saveCompareImg);
+
+	// Step3. 计算透射率图
+	Mat transmission = calcTransmission(input, yChannelMedian, airlight);
+
+	// Step4. 图像去雾
+	Mat dehazed = dehazing(input, transmission, airlight);
+	imshow("Dehazing", dehazed);
+	// 保存结果（可选）
+	//imwrite("dehaze.bmp", dehazed);
+
 	waitKey(0);
 	destroyAllWindows();
 	return 0;

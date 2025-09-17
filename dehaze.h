@@ -2,9 +2,14 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <filesystem>
 
 using namespace cv;
 using namespace std;
+namespace fs = std::filesystem;
+
+constexpr int airlight = 255;	// 环境光参数，值越小处理后的帧越亮。
+constexpr double scale = 1.0;	//原始视频的缩放参数
 
 //------------------------------------------------------------
 // 计算 YUV 颜色空间的 Y 通道
@@ -17,110 +22,6 @@ Mat calcYchannel(const Mat &src)
 	vector<Mat>planes;
 	split(yuv, planes);
 	return planes[0];
-}
-
-//------------------------------------------------------------
-// 计算暗通道并估计大气光
-//------------------------------------------------------------
-int calcAirlight(const Mat &src, int blockSize, int morphSize, bool cirleWrongPoint, bool saveBuf, bool saveBufWithMorph, bool saveCompareImg)
-{
-	CV_Assert(!src.empty() && src.type() == CV_8UC3);
-
-	// Step 1. 计算每个像素的 RGB 最小值
-	Mat rgbMin(src.rows, src.cols, CV_8UC1);
-
-	for (int i = 0; i<src.rows; i++)
-	{
-		const Vec3b* row = src.ptr<Vec3b>(i);
-		uchar* out = rgbMin.ptr<uchar>(i);
-		for (int j = 0; j<src.cols; j++)
-		{
-			out[j] = static_cast<uchar>(std::min({row[j][0], row[j][1], row[j][2]}));
-		}
-	}
-	imshow("rgbmin", rgbMin);
-
-	// Step 2. 基于 blockSize 进行最小滤波，得到暗通道
-	Mat darkChannel(src.size(), CV_8UC1, Scalar(0));
-
-	for (int i = 0; i < src.rows; i += blockSize)
-	{
-		for (int j = 0; j < src.cols; j+= blockSize)
-		{
-			int h = std::min(blockSize, src.rows - i);
-			int w = std::min(blockSize, src.cols - j);
-
-			Rect roi(j, i, w, h);
-			double minVal;
-			minMaxLoc(rgbMin(roi), &minVal, nullptr);
-			darkChannel(roi).setTo(static_cast<uchar>(minVal));
-		}
-	}
-	imshow("darkchannel", darkChannel);
-
-	// Step 3. 阈值分割，选取暗通道中最亮的 10%
-	vector<uchar> pixels;
-	pixels.assign(darkChannel.datastart, darkChannel.dataend);
-	sort(pixels.begin(), pixels.end());
-
-	int th = pixels[static_cast<size_t>(pixels.size() * 0.9)];
-	Mat mask = darkChannel >= th;
-
-	imshow("Threshold Image without morphology", mask);
-	if (saveBuf) imwrite("buf_nomorphology.bmp", mask);
-
-
-	// Step 4. 形态学操作去除噪声
-	// There is still some pixel(not the airlight area) in threshold image.
-	Mat element = getStructuringElement(MORPH_RECT, Size(morphSize, morphSize));
-	morphologyEx(mask, mask, MORPH_OPEN, element);
-
-
-	// Step 5. 找到亮度最高的点作为大气光
-	// Return to Y channel to find the pixel.
-	Mat yChannel = calcYchannel(src);
-	int maxI = 0; // Define the value of airlight
-	Point maxLoc(0, 0); // Define the location of airlight
-
-	for (int i = 0; i < mask.rows; i++)
-	{
-		const uchar* mRow = mask.ptr<uchar>(i);
-		const uchar* yRow = yChannel.ptr<uchar>(i);
-
-		for (int j = 0; j < mask.cols; j++)
-		{
-			if(mRow[j] == 255 && yRow[j] > maxI)
-			{
-				maxI = yRow[j];
-				maxLoc = Point(i, j);
-			}
-		}
-	}
-
-	// Step 6. 可视化
-	Mat display = src.clone();
-	if(cirleWrongPoint)
-	{
-		double minVal, maxVal;
-		Point minLoc, maxLocWrong;
-		minMaxLoc(yChannel, &minVal, &maxVal, &minLoc, &maxLocWrong);
-		circle(display, maxLocWrong, 5, Scalar(0, 0, 255), 2);
-	}
-	circle(display, maxLoc, 5, Scalar(0, 255, 0), 2);
-
-	imshow("Threshold Image", mask);
-	imshow("The position of Airlight", display);
-
-	if(saveBufWithMorph) imwrite("buf.bmp", mask);
-	if(saveCompareImg) imwrite("compare_point.bmp", display);
-
-
-	// Print information
-	cout << "The coordinate of Airlight is " << maxLoc << endl;
-	cout << "The brightest pixel value is " << maxI << endl;
-	cout << "The mask size of dark channel is: " << blockSize << " x " << blockSize << "."<<endl;
-	cout << "The mask size of morphylogy is: " << morphSize << " x " << morphSize << "."<<endl;
-	return maxI;
 }
 
 //------------------------------------------------------------
@@ -174,14 +75,13 @@ Mat calcTransmission(const Mat& src, const Mat& Mmed, int a)
 
 	Mat transmission = 255 * (1 - k * Mmed / a);
 	gammaCorrection(transmission, transmission, 1.3f - static_cast<float>(m));
-	cout << "m = " << m << endl;
 	return transmission;
 }
 
 //------------------------------------------------------------
 // 图像复原
 //------------------------------------------------------------
-Mat dehazing(const Mat &src, const Mat &t, int a)
+Mat dehazing(const Mat &src, const Mat &t, int airlight)
 {
 	CV_Assert(!src.empty() && !t.empty());
 
@@ -199,10 +99,139 @@ Mat dehazing(const Mat &src, const Mat &t, int a)
 			double tVal = max(rowT[j] / 255.0, tmin);
 			for (int c = 0; c < 3; c++)
 			{
-				double val = (rowSrc[j][c] - a) / tVal + a;
+				double val = (rowSrc[j][c] - airlight) / tVal + airlight;
 				rowDst[j][c] = saturate_cast<uchar>(val);
 			}
 		}
 	}
 	return dehazed;
 }
+
+//------------------------------------------------------------
+// 图像去雾处理进程
+//------------------------------------------------------------
+Mat processFrame(const Mat &frame, int airlight) {
+    if (frame.empty()) return frame;
+
+    Mat yChannel, yChannelMedian, transmission, dehazed;
+    yChannel = calcYchannel(frame);
+    medianBlur(yChannel, yChannelMedian, 5);
+    transmission = calcTransmission(frame, yChannelMedian, airlight);
+    dehazed = dehazing(frame, transmission, airlight);
+    return dehazed;
+}
+
+//------------------------------------------------------------
+// 处理单张图片
+//------------------------------------------------------------
+void processImage(const string &imagePath) {
+    Mat img = imread(imagePath);
+    if (img.empty()) {
+        cout << "Can not load the picture: " << imagePath << endl;
+        return;
+    }
+
+    Mat dehazed = processFrame(img, airlight);
+
+    imshow("Input", img);
+    imshow("Dehazing", dehazed);
+    imwrite("output.jpg", dehazed);
+
+    waitKey(0);
+    destroyAllWindows();
+}
+
+//------------------------------------------------------------
+// 处理单个视频（实时显示并保存）
+//------------------------------------------------------------
+void processVideo(const string &videoPath, const string &outputPath) {
+    VideoCapture cap(videoPath);
+    if (!cap.isOpened()) {
+        cout << "Can not open video: " << videoPath << endl;
+        return;
+    }
+
+    // 原始视频参数
+    int frame_width = static_cast<int>(cap.get(CAP_PROP_FRAME_WIDTH) / 2);
+    int frame_height = static_cast<int>(cap.get(CAP_PROP_FRAME_HEIGHT) / 2);
+    double fps = cap.get(CAP_PROP_FPS);
+
+    // 缩放比例
+    int out_width  = static_cast<int>(frame_width * scale);
+    int out_height = static_cast<int>(frame_height * scale);
+
+    // Writer 分辨率要和 combined 一致
+    int combined_width  = out_width * 2;   // 左右拼接
+    int combined_height = out_height;
+
+    // Writer
+    VideoWriter writer(outputPath,
+                       VideoWriter::fourcc('m','p','4','v'),
+                       fps,
+                       Size(combined_width, combined_height));
+
+    Mat frame, processed;
+    int frameCount = 0;
+    double avg_fps = 0.0;
+
+    while (true) {
+        cap >> frame;
+        if (frame.empty()) break;
+        frameCount++;
+
+        // 缩放帧
+        resize(frame, frame, Size(out_width, out_height));
+
+        // 开始计时
+        auto start = chrono::high_resolution_clock::now();
+
+        // 图像处理
+        processed = processFrame(frame, airlight);
+
+        // 结束计时
+        auto end = chrono::high_resolution_clock::now();
+        chrono::duration<double> elapsed = end - start;
+        double fps_now = 1.0 / elapsed.count();
+
+        // 滑动平均
+        avg_fps = (avg_fps * (frameCount - 1) + fps_now) / frameCount;
+
+        // 显示 FPS
+        string text = "FPS: " + to_string(fps_now).substr(0, 5) + "  Avg: " + to_string(avg_fps).substr(0, 5);
+        putText(processed, text, Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0, 255, 0), 2);
+
+        // 结合图像
+        Mat combined;
+        hconcat(frame, processed, combined);
+
+        // 显示结果
+        imshow("Original | Dehazing", combined);
+
+        // 保存结果帧
+        writer.write(combined);
+
+        // ESC 退出
+        if (waitKey(1) == 27) break; // ESC 退出
+    }
+
+    cap.release();
+    writer.release();
+    destroyAllWindows();
+}
+
+//------------------------------------------------------------
+// 批量处理视频（只保存）
+//------------------------------------------------------------
+void batchProcessVideos(const string &inputDir, const string &outputDir) {
+    fs::create_directories(outputDir);
+
+    for (const auto &entry : fs::directory_iterator(inputDir)) {
+        if (entry.is_regular_file()) {
+            string path = entry.path().string();
+            string outPath = outputDir + "/" + entry.path().filename().string();
+            cout << "Processing video: " << path << endl;
+            processVideo(path, outPath); // 批量时不显示
+        }
+    }
+}
+
